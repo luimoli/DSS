@@ -16,14 +16,14 @@ class ImageData(data.Dataset):
     filename:    MSRA-B use xxx.txt to recognize train-val-test data (only for MSRA-B)
     """
 
-    def __init__(self, img_root, label_root, transform, t_transform, filename=None, mode='train'):
+    def __init__(self, img_root, label_root, transform, t_transform, filename=None, mode='train', itertype = 'default'):
         if filename is None:
             self.image_path = list(map(lambda x: os.path.join(img_root, x), os.listdir(img_root)))
             self.label_path = list(
                 map(lambda x: os.path.join(label_root, x.split('/')[-1][:-3] + 'png'), self.image_path))
         else:
             lines = [line.rstrip('\n') for line in open(filename)]
-            if mode == 'train':  
+            if itertype == 'multi':
                 lines = lines * int(np.ceil(float(max_iters) / len(lines)))
             self.image_path = list(map(lambda x: os.path.join(img_root, x + '.jpg'), lines))
             self.label_path = list(map(lambda x: os.path.join(label_root, x + '.png'), lines))
@@ -72,7 +72,7 @@ class TargetData(data.Dataset):
         return len(self.image_path)
 
 # get the dataloader (Note: without data augmentation)
-def get_loader(img_root, label_root, img_size, batch_size, filename=None, mode='train', num_thread=2, pin=True):
+def get_loader(img_root, label_root, img_size, batch_size, filename=None, mode='train',itertype='default', num_thread=2, pin=True):
     if mode == 'train':     
         transform = transforms.Compose([
             transforms.Resize((img_size, img_size)),
@@ -84,7 +84,7 @@ def get_loader(img_root, label_root, img_size, batch_size, filename=None, mode='
             transforms.ToTensor(),
             transforms.Lambda(lambda x: torch.round(x))  # TODO: it maybe unnecessary
         ])
-        dataset = ImageData(img_root, label_root, transform, t_transform, filename=filename, mode=mode)
+        dataset = ImageData(img_root, label_root, transform, t_transform, filename=filename, mode=mode, itertype=itertype)
         data_loader = data.DataLoader(dataset=dataset, batch_size=batch_size, shuffle=True, num_workers=num_thread,
                                       pin_memory=pin)
         return data_loader
@@ -93,7 +93,7 @@ def get_loader(img_root, label_root, img_size, batch_size, filename=None, mode='
             transforms.ToTensor(),
             transforms.Lambda(lambda x: torch.round(x))  # TODO: it maybe unnecessary
         ])
-        dataset = ImageData(img_root, label_root, None, t_transform, filename=filename, mode=mode)
+        dataset = ImageData(img_root, label_root, None, t_transform, filename=filename, mode=mode, itertype=itertype)
         return dataset
 
 def get_loader_target(img_root, img_size, batch_size, filename=None, mode='train', num_thread=2, pin=True):
@@ -128,9 +128,9 @@ if __name__ == '__main__':
     # label_root = '/data0/liumengmeng/datasets/DUTS/gt'
     # filename = '/data0/liumengmeng/datasets/DUTS/train_id.txt'
 
-    img_root = '/data0/liumengmeng/CG/img'
-    label_root = '/data0/liumengmeng/CG/gt'
-    filename = '/data0/liumengmeng/CG/train_id.txt'
+    img_root = '/data1/liumengmeng/CG2/img'
+    label_root = '/data1/liumengmeng/CG2/gt'
+    filename = '/data1/liumengmeng/CG2/id/train_id.txt'
 
     loader = get_loader(img_root, label_root, 224, 1, filename=filename, mode='test')
     #loader = get_loader(img_root, label_root, 224, 1, filename=filename, mode='train')

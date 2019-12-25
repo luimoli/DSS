@@ -32,21 +32,19 @@ from advent.utils.viz_segmask import colorize_mask
 
 class Solver(object):
     def __init__(self, train_loader, target_loader,val_loader, test_dataset, config):
-        self.trainloader = train_loader
+        self.train_loader = train_loader
         self.val_loader = val_loader
         self.test_dataset = test_dataset
         self.targetloader = target_loader
         self.config = config
-        # self.cfg = cfg
         self.beta = math.sqrt(0.3)  # for max F_beta metric
         # inference: choose the side map (see paper)
         self.select = [1, 2, 3, 6]
         self.device = torch.device('cpu')
         self.mean = torch.Tensor([0.485, 0.456, 0.406]).view(3, 1, 1)
         self.std = torch.Tensor([0.229, 0.224, 0.225]).view(3, 1, 1)
-        self.TENSORBOARD_LOGDIR = f'{config.save_fold}/tensorboards'
-        self.TENSORBOARD_VIZRATE = 100
-        self.LAMBDA_ADV_MAIN = 0.001############TODO
+        # self.TENSORBOARD_LOGDIR = f'{config.save_fold}/tensorboards'
+        # self.TENSORBOARD_VIZRATE = 100
         if self.config.cuda:
             cudnn.benchmark = True
             self.device = torch.device('cuda:0')
@@ -56,6 +54,7 @@ class Solver(object):
         if self.config.pre_trained: self.net.load_state_dict(torch.load(self.config.pre_trained))
         if config.mode == 'train':
             self.log_output = open("%s/logs/log.txt" % config.save_fold, 'w')
+            self.val_output = open("%s/logs/val.txt" % config.save_fold, 'w')
         else:
             self.net.load_state_dict(torch.load(self.config.model))
             self.net.eval()
@@ -139,18 +138,12 @@ class Solver(object):
                 prec, recall = self.eval_pr(prob_pred, labels, num)
                 tmp = prob_pred[0]
                 img = ToPILImage()(tmp)
-                img.save(self.test_outmap + '/' + self.test_dataset.label_path[i][25:])
+                img.save(self.test_outmap + '/' + self.test_dataset.label_path[i][36:])
                 # print(self.test_dataset.label_path[i][25:])
                 # print(prob_pred.size())
                 print("[%d] mae: %.4f" % (i, mae))
                 print("[%d] mae: %.4f" % (i, mae), file=self.test_output)
                 avg_mae += mae
-                # if ((recall != recall)[0]):
-                #     print(self.test_dataset.label_path[i][25:],file=self.test_output)
-                #     img_num -= 1
-                # else:
-                #     avg_prec, avg_recall = avg_prec + prec, avg_recall + recall
-                #     print(avg_recall,file=self.test_output)
                 avg_prec, avg_recall = avg_prec + prec, avg_recall + recall
         avg_mae, avg_prec, avg_recall = avg_mae / img_num, avg_prec / img_num, avg_recall / img_num
         score = (1 + self.beta ** 2) * avg_prec * avg_recall / (self.beta ** 2 * avg_prec + avg_recall)
@@ -162,17 +155,7 @@ class Solver(object):
     def train_advent(self):
         ''' UDA training with advent
         '''
-        # Create the model and start the training.
-        input_size_source = (1280, 720)
-        input_size_target = (1024, 512)
-
-        # device = self.cfg.GPU_ID
-        # num_classes = self.cfg.NUM_CLASSES
         num_classes = 1
-
-        # viz_tensorboard = os.path.exists(self.TENSORBOARD_LOGDIR)
-        # if viz_tensorboard:
-        #     writer = SummaryWriter(log_dir=self.TENSORBOARD_LOGDIR)
 
         # DISCRIMINATOR NETWORK
         # seg maps, i.e. output, level
@@ -182,23 +165,20 @@ class Solver(object):
 
         # OPTIMIZERS
         # discriminators' optimizers
-        optimizer_d_main = optim.Adam(d_main.parameters(), lr=self.config.lr,
-                                    betas=(0.9, 0.99))
-
-        # interpolate output segmaps
-        # interp = nn.Upsample(size=(input_size_source[1], input_size_source[0]), mode='bilinear',
-        #                     align_corners=True)
-        # interp_target = nn.Upsample(size=(input_size_target[1], input_size_target[0]), mode='bilinear',
-        #                             align_corners=True)
-                                    
+        optimizer_d_main = optim.Adam(d_main.parameters(), lr=self.config.lr_d,
+                                    betas=(0.9, 0.99))                               
         # labels for adversarial training-------------------------------------------------------
         source_label = 0
         target_label = 1
-        trainloader_iter = enumerate(self.trainloader)
+        trainloader_iter = enumerate(self.train_loader)
         targetloader_iter = enumerate(self.targetloader)
+        best_mae = 1.0 if self.config.val else None 
 
         for i_iter in tqdm(range(self.config.early_stop)):
             
+            # if i_iter >= 3000:
+            #     self.config.lr = 1e-5
+
             # reset optimizers
             self.optimizer.zero_grad()
             optimizer_d_main.zero_grad()
@@ -230,29 +210,16 @@ class Solver(object):
             images = batch
             images = images.to(self.device)
             pred_trg_main = self.net(images)
-            # pred_trg_main = torch.mean(torch.cat([pred_trg_main[i] for i in self.select], dim=1), dim=1, keepdim=True)
-
-            #TODO:not sure about interpolate
-            # pred_trg_main = interp_target(pred_trg_main)
-            # pred_trg_main = F.interpolate(pred_trg_main, size=(input_size_target[1], input_size_target[0]), mode='bilinear',
-                                    # align_corners=True)
-            # d_out_main = d_main(prob_2_entropy(F.softmax(pred_trg_main)))
-            # loss_adv_trg_main = bce_loss(d_out_main, source_label)
-            # loss = (LAMBDA_ADV_MAIN * loss_adv_trg_main)
-            #         # + cfg.TRAIN.LAMBDA_ADV_AUX * loss_adv_trg_aux)
-            # loss = loss
-            # loss.backward()
-            
-            d_out_main = d_main(prob_2_entropy(pred_trg_main[0]))
+  
+            # d_out_main = d_main(prob_2_entropy(pred_trg_main[0]))
+            d_out_main = d_main(pred_trg_main[0])
             loss_adv_trg_main = bce_loss(d_out_main, source_label)
-            loss_adv_trg = self.LAMBDA_ADV_MAIN * loss_adv_trg_main
-            # loss_adv_trg_no = loss_adv_trg_main
+            loss_adv_trg = self.config.LAMBDA_ADV_MAIN * loss_adv_trg_main
             for i in range(len(pred_trg_main) - 1):
-                d_out_main = d_main(prob_2_entropy(pred_trg_main[i+1]))
-                # d_out_main = d_main(prob_2_entropy(F.softmax(pred_trg_main[i+1])))
+                # d_out_main = d_main(prob_2_entropy(pred_trg_main[i+1]))
+                d_out_main = d_main(pred_trg_main[i+1])
                 loss_adv_trg_main = bce_loss(d_out_main, source_label)
-                loss_adv_trg += self.LAMBDA_ADV_MAIN * loss_adv_trg_main
-                # loss_adv_trg_no += loss_adv_trg_main
+                loss_adv_trg += self.config.LAMBDA_ADV_MAIN * loss_adv_trg_main
             loss = loss_adv_trg
             loss.backward()
 
@@ -263,12 +230,14 @@ class Solver(object):
                 param.requires_grad = True
             # train with source
             pred_src_main[0] = pred_src_main[0].detach()
-            d_out_main = d_main(prob_2_entropy(pred_src_main[0]))
+            # d_out_main = d_main(prob_2_entropy(pred_src_main[0]))
+            d_out_main = d_main(pred_src_main[0])
             loss_d_main = bce_loss(d_out_main, source_label)
             loss_d_src = loss_d_main / 2
             for i in range(len(pred_src_main) - 1):
                 pred_src_main[i+1] = pred_src_main[i+1].detach()
-                d_out_main = d_main(prob_2_entropy(pred_src_main[i+1]))
+                # d_out_main = d_main(prob_2_entropy(pred_src_main[i+1]))
+                d_out_main = d_main(pred_src_main[i+1])
                 loss_d_main = bce_loss(d_out_main, source_label)
                 loss_d_src += loss_d_main / 2
             loss_d = loss_d_src
@@ -276,32 +245,18 @@ class Solver(object):
 
             # train with target
             pred_trg_main[0] = pred_trg_main[0].detach()
-            d_out_main = d_main(prob_2_entropy(pred_trg_main[0]))
+            # d_out_main = d_main(prob_2_entropy(pred_trg_main[0]))
+            d_out_main = d_main(pred_trg_main[0])
             loss_d_main = bce_loss(d_out_main, target_label)
             loss_d_trg = loss_d_main / 2
             for i in range(len(pred_trg_main) - 1):
                 pred_trg_main[i+1] = pred_trg_main[i+1].detach()
-                d_out_main = d_main(prob_2_entropy(pred_trg_main[i+1]))
+                # d_out_main = d_main(prob_2_entropy(pred_trg_main[i+1]))
+                d_out_main = d_main(pred_trg_main[i+1])
                 loss_d_main = bce_loss(d_out_main, target_label)
                 loss_d_trg += loss_d_main / 2
             loss_d = loss_d_trg
             loss_d.backward()
-
-            # # train with source
-            # pred_src_main = torch.mean(torch.cat([pred_src_main[i] for i in self.select], dim=1), dim=1, keepdim=True)
-            # pred_src_main = pred_src_main.detach()
-            # d_out_main = d_main(prob_2_entropy(pred_src_main))
-            # loss_d_main = bce_loss(d_out_main, source_label)
-            # loss_d_main = loss_d_main / 2
-            # loss_d_main.backward()
-
-            # # train with target
-            # pred_trg_main = torch.mean(torch.cat([pred_trg_main[i] for i in self.select], dim=1), dim=1, keepdim=True)
-            # pred_trg_main = pred_trg_main.detach()
-            # d_out_main = d_main(prob_2_entropy(pred_trg_main))
-            # loss_d_main = bce_loss(d_out_main, target_label)
-            # loss_d_main = loss_d_main / 2
-            # loss_d_main.backward()
 
             # optimizer.step()------------------------------------------------------------------------------
             self.optimizer.step()
@@ -313,29 +268,35 @@ class Solver(object):
                             'loss_d': loss_d}
             print_losses(current_losses, i_iter, self.log_output)
 
+            # if (i_iter + 1) % 1000 == 0:
+            #     print('epoch: [%d/%d], epoch_loss: [%.4f]' % ((i_iter + 1) % 1000, self.config.epoch, loss_epoch / 16000),
+            #           file=self.log_output)
+            #     loss_epoch = 0
 
+            if self.config.val and (i_iter + 1) % self.config.iter_val == 0:
+                print('validation ...')
+                mae = self.validation()
+                print('%d:--- Best MAE: %.4f, Curr MAE: %.4f ---' % ((i_iter + 1),best_mae, mae))
+                print('  %d:--- Best MAE: %.4f, Curr MAE: %.4f ---' % ((i_iter + 1),best_mae, mae), file=self.log_output)
+                print('  %d:--- Best MAE: %.4f, Curr MAE: %.4f ---' % ((i_iter + 1),best_mae, mae), file=self.val_output)
+                if best_mae > mae:
+                    best_mae = mae
+                    torch.save(self.net.state_dict(), '%s/models/best.pth' % self.config.save_fold)
+            
             if (i_iter + 1) % self.config.iter_save == 0 and i_iter != 0:
                 print('taking snapshot ...')
-                # snapshot_dir = Path(cfg.TRAIN.SNAPSHOT_DIR)
-                torch.save(self.net.state_dict(), '%s/models/epoch_%d.pth' % (self.config.save_fold, i_iter + 1))
-                # torch.save(model.state_dict(), snapshot_dir / f'model_{i_iter}.pth')
-                torch.save(d_main.state_dict(), '%s/models/epoch_D_main_%d.pth' % (self.config.save_fold, i_iter + 1))
-                # torch.save(d_main.state_dict(), snapshot_dir / f'model_{i_iter}_D_main.pth')
+                torch.save(self.net.state_dict(), '%s/models/iter_%d.pth' % (self.config.save_fold, i_iter + 1))
+                torch.save(d_main.state_dict(), '%s/models/iter_Discriminator_%d.pth' % (self.config.save_fold, i_iter + 1))
                 if i_iter >= self.config.early_stop - 1:
                     break
+
             sys.stdout.flush()
-
-            # # Visualize with tensorboard
-            # if viz_tensorboard:
-            #     log_losses_tensorboard(writer, current_losses, i_iter)
-
-            #     if i_iter % self.TENSORBOARD_VIZRATE == self.TENSORBOARD_VIZRATE - 1:
-            #         draw_in_tensorboard(writer, images, i_iter, pred_trg_main, num_classes, 'T')
-            #         draw_in_tensorboard(writer, x, i_iter, pred_src_main, num_classes, 'S')
-
         torch.save(self.net.state_dict(), '%s/models/final.pth' % self.config.save_fold)
 
+
+
     def train_old(self):
+        print(len(self.train_loader.dataset))
         iter_num = len(self.train_loader.dataset) // self.config.batch_size
         best_mae = 1.0 if self.config.val else None 
         for epoch in range(self.config.epoch):
@@ -380,6 +341,7 @@ class Solver(object):
                 torch.save(self.net.state_dict(), '%s/models/epoch_%d.pth' % (self.config.save_fold, epoch + 1))
         torch.save(self.net.state_dict(), '%s/models/final.pth' % self.config.save_fold)
 
+#--------------------------------------------------------------------------------------
 def draw_in_tensorboard(writer, images, i_iter, pred_main, num_classes, type_):
     grid_image = make_grid(images[:3].clone().cpu().data, 3, normalize=True)
     writer.add_image(f'Image - {type_}', grid_image, i_iter)
@@ -402,6 +364,7 @@ def to_numpy(tensor):
         return tensor
     else:
         return tensor.data.cpu().numpy()
+
 def print_losses(current_losses, i_iter, file_):
     list_strings = []
     for loss_name, loss_value in current_losses.items():
