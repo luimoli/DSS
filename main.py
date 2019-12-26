@@ -21,7 +21,7 @@ def main(config):
         os.mkdir("%s/run-%d/logs" % (config.save_fold, run))
         # os.mkdir("%s/run-%d/images" % (config.save_fold, run))
         os.mkdir("%s/run-%d/models" % (config.save_fold, run))
-        # os.mkdir("%s/run-%d/tensorboards" % (config.save_fold, run))
+        os.mkdir("%s/run-%d/tensorboards" % (config.save_fold, run))
         config.save_fold = "%s/run-%d" % (config.save_fold, run)
         if config.val:
             train = Solver(train_loader, target_loader, val_loader, None, config)
@@ -91,7 +91,7 @@ if __name__ == '__main__':
     parser.add_argument('--img_size', type=int, default=320)  # 256
     parser.add_argument('--lr', type=float, default=1e-4)#-4 #1e-6
     parser.add_argument('--lr_d', type=float, default=1e-4)#-4 #1e-6
-    parser.add_argument('--LAMBDA_ADV_MAIN', type=float, default=0.001) # loss_adv
+    parser.add_argument('--LAMBDA_ADV_MAIN', type=float, default=0.01) # loss_adv
     parser.add_argument('--clip_gradient', type=float, default=1.0)
     parser.add_argument('--cuda', type=bool, default=True)
 

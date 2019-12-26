@@ -43,8 +43,8 @@ class Solver(object):
         self.device = torch.device('cpu')
         self.mean = torch.Tensor([0.485, 0.456, 0.406]).view(3, 1, 1)
         self.std = torch.Tensor([0.229, 0.224, 0.225]).view(3, 1, 1)
-        # self.TENSORBOARD_LOGDIR = f'{config.save_fold}/tensorboards'
-        # self.TENSORBOARD_VIZRATE = 100
+        self.TENSORBOARD_LOGDIR = f'{config.save_fold}/tensorboards'
+        self.TENSORBOARD_VIZRATE = 100
         if self.config.cuda:
             cudnn.benchmark = True
             self.device = torch.device('cuda:0')
@@ -109,17 +109,18 @@ class Solver(object):
 
     # validation: using resize image, and only evaluate the MAE metric
     def validation(self):
-        avg_mae = 0.0
+        avg_mae, avg_loss = 0.0, 0.0
         self.net.eval()
         with torch.no_grad():
             for i, data_batch in enumerate(self.val_loader):
                 images, labels = data_batch
                 images, labels = images.to(self.device), labels.to(self.device)
                 prob_pred = self.net(images)
+                avg_loss += self.loss(prob_pred, labels)
                 prob_pred = torch.mean(torch.cat([prob_pred[i] for i in self.select], dim=1), dim=1, keepdim=True)
                 avg_mae += self.eval_mae(prob_pred, labels).item()
         self.net.train()
-        return avg_mae / len(self.val_loader)
+        return avg_mae / len(self.val_loader), avg_loss / len(self.val_loader)
 
     # test phase: using origin image size, evaluate MAE and max F_beta metrics
     def test(self, num, use_crf=False):
@@ -156,6 +157,9 @@ class Solver(object):
         ''' UDA training with advent
         '''
         num_classes = 1
+        viz_tensorboard = os.path.exists(self.TENSORBOARD_LOGDIR)
+        if viz_tensorboard:
+            writer = SummaryWriter(log_dir=self.TENSORBOARD_LOGDIR)
 
         # DISCRIMINATOR NETWORK
         # seg maps, i.e. output, level
@@ -165,7 +169,7 @@ class Solver(object):
 
         # OPTIMIZERS
         # discriminators' optimizers
-        optimizer_d_main = optim.Adam(d_main.parameters(), lr=self.config.lr_d,
+        optimizer_d_main = optim.Adam(d_main.parameters(), lr=self.config.lr,
                                     betas=(0.9, 0.99))                               
         # labels for adversarial training-------------------------------------------------------
         source_label = 0
@@ -176,8 +180,8 @@ class Solver(object):
 
         for i_iter in tqdm(range(self.config.early_stop)):
             
-            # if i_iter >= 3000:
-            #     self.config.lr = 1e-5
+            if i_iter >= 3000:
+                self.config.lr = 1e-5
 
             # reset optimizers
             self.optimizer.zero_grad()
@@ -265,7 +269,8 @@ class Solver(object):
             current_losses = {
                             'loss_seg_src': loss_seg_src,
                             'loss_adv_trg': loss_adv_trg,
-                            'loss_d': loss_d}
+                            'loss_d_src': loss_d_src,
+                            'loss_d_trg': loss_d_trg}
             print_losses(current_losses, i_iter, self.log_output)
 
             # if (i_iter + 1) % 1000 == 0:
@@ -275,7 +280,8 @@ class Solver(object):
 
             if self.config.val and (i_iter + 1) % self.config.iter_val == 0:
                 print('validation ...')
-                mae = self.validation()
+                mae,loss_val = self.validation()
+                log_vals_tensorboard(writer,best_mae,mae,loss_val, i_iter+1)
                 print('%d:--- Best MAE: %.4f, Curr MAE: %.4f ---' % ((i_iter + 1),best_mae, mae))
                 print('  %d:--- Best MAE: %.4f, Curr MAE: %.4f ---' % ((i_iter + 1),best_mae, mae), file=self.log_output)
                 print('  %d:--- Best MAE: %.4f, Curr MAE: %.4f ---' % ((i_iter + 1),best_mae, mae), file=self.val_output)
@@ -285,12 +291,19 @@ class Solver(object):
             
             if (i_iter + 1) % self.config.iter_save == 0 and i_iter != 0:
                 print('taking snapshot ...')
-                torch.save(self.net.state_dict(), '%s/models/iter_%d.pth' % (self.config.save_fold, i_iter + 1))
-                torch.save(d_main.state_dict(), '%s/models/iter_Discriminator_%d.pth' % (self.config.save_fold, i_iter + 1))
+                # torch.save(self.net.state_dict(), '%s/models/iter_%d.pth' % (self.config.save_fold, i_iter + 1))
+                # torch.save(d_main.state_dict(), '%s/models/iter_Discriminator_%d.pth' % (self.config.save_fold, i_iter + 1))
                 if i_iter >= self.config.early_stop - 1:
                     break
-
+            
             sys.stdout.flush()
+            
+            if viz_tensorboard:
+                log_losses_tensorboard(writer, current_losses, i_iter)
+                # if i_iter % self.TENSORBOARD_VIZRATE == self.TENSORBOARD_VIZRATE - 1:
+                #     draw_in_tensorboard(writer, images, i_iter, pred_trg_main, num_classes, 'T')
+                #     draw_in_tensorboard(writer, images_source, i_iter, pred_src_main, num_classes, 'S')
+
         torch.save(self.net.state_dict(), '%s/models/final.pth' % self.config.save_fold)
 
 
@@ -341,7 +354,7 @@ class Solver(object):
                 torch.save(self.net.state_dict(), '%s/models/epoch_%d.pth' % (self.config.save_fold, epoch + 1))
         torch.save(self.net.state_dict(), '%s/models/final.pth' % self.config.save_fold)
 
-#--------------------------------------------------------------------------------------
+#-----------------------------------------------------------------------------------------------------------
 def draw_in_tensorboard(writer, images, i_iter, pred_main, num_classes, type_):
     grid_image = make_grid(images[:3].clone().cpu().data, 3, normalize=True)
     writer.add_image(f'Image - {type_}', grid_image, i_iter)
@@ -375,79 +388,9 @@ def print_losses(current_losses, i_iter, file_):
 
 def log_losses_tensorboard(writer, current_losses, i_iter):
     for loss_name, loss_value in current_losses.items():
-        writer.add_scalar(f'data/{loss_name}', to_numpy(loss_value), i_iter)
+        writer.add_scalar(f'loss/{loss_name}', to_numpy(loss_value), i_iter)
 
-
-#----------------------------------------------------------------------------------------------------------------------
-    # test phase: using origin image size, evaluate MAE and max F_beta metrics
-    # def test(self, num, use_crf=False):
-    #     if use_crf: from tools.crf_process import crf
-    #     avg_mae, img_num = 0.0, len(self.test_dataset)
-    #     avg_prec, avg_recall = torch.zeros(num), torch.zeros(num)
-    #     with torch.no_grad():
-    #         for i, (img, labels) in enumerate(self.test_dataset):
-    #             images = self.transform(img).unsqueeze(0)
-    #             labels = labels.unsqueeze(0)
-    #             shape = labels.size()[2:]
-    #             images = images.to(self.device)
-    #             prob_pred = self.net(images)
-    #             prob_pred = torch.mean(torch.cat([prob_pred[i] for i in self.select], dim=1), dim=1, keepdim=True)
-    #             prob_pred = F.interpolate(prob_pred, size=shape, mode='bilinear', align_corners=True).cpu().data
-    #             if use_crf:
-    #                 prob_pred = crf(img, prob_pred.numpy(), to_tensor=True)
-    #             mae = self.eval_mae(prob_pred, labels)
-    #             prec, recall = self.eval_pr(prob_pred, labels, num)
-    #             print("[%d] mae: %.4f" % (i, mae))
-    #             print("[%d] mae: %.4f" % (i, mae), file=self.test_output)
-    #             avg_mae += mae
-    #             avg_prec, avg_recall = avg_prec + prec, avg_recall + recall
-    #     avg_mae, avg_prec, avg_recall = avg_mae / img_num, avg_prec / img_num, avg_recall / img_num
-    #     score = (1 + self.beta ** 2) * avg_prec * avg_recall / (self.beta ** 2 * avg_prec + avg_recall)
-    #     score[score != score] = 0  # delete the nan
-    #     print('average mae: %.4f, max fmeasure: %.4f' % (avg_mae, score.max()))
-    #     print('average mae: %.4f, max fmeasure: %.4f' % (avg_mae, score.max()), file=self.test_output)
-#-------------------------------------------------------------------------------------------------------------------
-    # # training phase
-    # def train(self):
-    #     iter_num = len(self.train_loader.dataset) // self.config.batch_size
-    #     best_mae = 1.0 if self.config.val else None
-    #     for epoch in range(self.config.epoch):
-    #         loss_epoch = 0
-    #         for i, data_batch in enumerate(self.train_loader):
-    #             if (i + 1) > iter_num: break
-    #             self.net.zero_grad()
-    #             x, y = data_batch
-    #             x, y = x.to(self.device), y.to(self.device)
-    #             y_pred = self.net(x)
-    #             loss = self.loss(y_pred, y)
-    #             loss.backward()
-    #             utils.clip_grad_norm_(self.net.parameters(), self.config.clip_gradient)
-    #             # utils.clip_grad_norm(self.loss.parameters(), self.config.clip_gradient)
-    #             self.optimizer.step()
-    #             loss_epoch += loss.item()
-    #             print('epoch: [%d/%d], iter: [%d/%d], loss: [%.4f]' % (
-    #                 epoch, self.config.epoch, i, iter_num, loss.item()))
-    #             if self.config.visdom:
-    #                 error = OrderedDict([('loss:', loss.item())])
-    #                 self.visual.plot_current_errors(epoch, i / iter_num, error)
-
-    #         if (epoch + 1) % self.config.epoch_show == 0:
-    #             print('epoch: [%d/%d], epoch_loss: [%.4f]' % (epoch, self.config.epoch, loss_epoch / iter_num),
-    #                   file=self.log_output)
-    #             if self.config.visdom:
-    #                 avg_err = OrderedDict([('avg_loss', loss_epoch / iter_num)])
-    #                 self.visual.plot_current_errors(epoch, i / iter_num, avg_err, 1)
-    #                 y_show = torch.mean(torch.cat([y_pred[i] for i in self.select], dim=1), dim=1, keepdim=True)
-    #                 img = OrderedDict([('origin', x.cpu()[0] * self.std + self.mean), ('label', y.cpu()[0][0]),
-    #                                    ('pred_label', y_show.cpu().data[0][0])])
-    #                 self.visual.plot_current_img(img)
-    #         if self.config.val and (epoch + 1) % self.config.epoch_val == 0:
-    #             mae = self.validation()
-    #             print('--- Best MAE: %.2f, Curr MAE: %.2f ---' % (best_mae, mae))
-    #             print('--- Best MAE: %.2f, Curr MAE: %.2f ---' % (best_mae, mae), file=self.log_output)
-    #             if best_mae > mae:
-    #                 best_mae = mae
-    #                 torch.save(self.net.state_dict(), '%s/models/best.pth' % self.config.save_fold)
-    #         if (epoch + 1) % self.config.epoch_save == 0:
-    #             torch.save(self.net.state_dict(), '%s/models/epoch_%d.pth' % (self.config.save_fold, epoch + 1))
-    #     torch.save(self.net.state_dict(), '%s/models/final.pth' % self.config.save_fold)
+def log_vals_tensorboard(writer, best_mae, mae, loss_val, val_iter):
+    writer.add_scalar(f'val/best_mae', best_mae, val_iter)
+    writer.add_scalar(f'val/curr_mae', mae, val_iter)
+    writer.add_scalar(f'val/loss_seg', loss_val, val_iter)
