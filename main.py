@@ -13,8 +13,9 @@ def main(config):
                                     filename=config.target_file,num_thread=config.num_thread)
 
         if config.val:
-            val_loader = get_loader(config.val_path, config.val_label, config.img_size, config.batch_size,
+            val_loader = get_loader(config.val_path, config.val_label, config.img_size, config.val_batch_size,
                                     filename=config.val_file,num_thread=config.num_thread)
+            if not os.path.exists(config.val_fold): os.mkdir(config.val_fold)
         run = 0
         while os.path.exists("%s/run-%d" % (config.save_fold, run)): run += 1
         os.mkdir("%s/run-%d" % (config.save_fold, run))
@@ -23,6 +24,8 @@ def main(config):
         os.mkdir("%s/run-%d/models" % (config.save_fold, run))
         os.mkdir("%s/run-%d/tensorboards" % (config.save_fold, run))
         config.save_fold = "%s/run-%d" % (config.save_fold, run)
+        # if not os.path.exists("%s/val-%d" % (config.val_fold, run)): os.mkdir("%s/val-%d" % (config.val_fold, run))
+        # config.val_fold = "%s/val-%d" % (config.val_fold, run)
         if config.val:
             train = Solver(train_loader, target_loader, val_loader, None, config)
         else:
@@ -61,7 +64,7 @@ if __name__ == '__main__':
     # #valid_file = os.path.join(data_root, 'DUTS/ImageSets/val_id.txt')
     # test_file = os.path.join(data_root, 'DUTS/ImageSets/test_id.txt')
 
-    # # -----my Composite Graph ONE dataset-----
+    # # -----CG ONE dataset-----
     # image_path = os.path.join(data_root, 'CG/img')
     # label_path = os.path.join(data_root, 'CG/gt')
     # train_file = os.path.join(data_root, 'CG/id/train_id.txt')
@@ -72,7 +75,7 @@ if __name__ == '__main__':
     # target_path = os.path.join(data_root, 'DUTS/imgs')
     # target_file = os.path.join(data_root, 'DUTS/ImageSets/train_id.txt')
 
-    # -----my Composite Graph TWO  dataset-----
+    # ------CG TWO  dataset-----
     image_path = os.path.join(cg2_root, 'img')
     label_path = os.path.join(cg2_root, 'gt')
     train_file = os.path.join(cg2_root, 'id/train_id.txt')
@@ -102,11 +105,12 @@ if __name__ == '__main__':
     parser.add_argument('--train_file', type=str, default=train_file)
     parser.add_argument('--target_path', type=str, default=target_path)# target domain
     parser.add_argument('--target_file', type=str, default=target_file)# the id of target domain
-    parser.add_argument('--early_stop', type=int, default=15000)# iteration number
+    parser.add_argument('--early_stop', type=int, default=20000)# iteration number
     parser.add_argument('--iter_save', type=int, default=500)# save model every  epoch
     parser.add_argument('--iter_val', type=int, default=500) # equals  epoch
     parser.add_argument('--epoch', type=int, default=50)
     parser.add_argument('--batch_size', type=int, default=1)  # 8 # 16
+    parser.add_argument('--val_batch_size', type=int, default=1)  # 8 # 16
     parser.add_argument('--val', type=bool, default=True)
     parser.add_argument('--val_path', type=str, default=image_path_2)
     parser.add_argument('--val_label', type=str, default=label_path_2)
@@ -114,10 +118,13 @@ if __name__ == '__main__':
     parser.add_argument('--num_thread', type=int, default=4)
     parser.add_argument('--load', type=str, default='')
     parser.add_argument('--save_fold', type=str, default='/data1/liumengmeng/DSS/DSS-results')
+    parser.add_argument('--val_fold', type=str, default='/data1/liumengmeng/DSS/DSS-results')
+    parser.add_argument('--val_fold_sub', type=str, default=None)
     parser.add_argument('--epoch_val', type=int, default=10)
     parser.add_argument('--epoch_save', type=int, default=10)
     parser.add_argument('--epoch_show', type=int, default=1)
     parser.add_argument('--pre_trained', type=str, default=None)
+    parser.add_argument('--add_adv', type=bool, default=False)
 
     # Testing settings
     parser.add_argument('--test_path', type=str, default=image_path_2)
