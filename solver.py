@@ -111,29 +111,20 @@ class Solver(object):
     def validation(self):
         avg_mae, avg_loss = 0.0, 0.0
         self.net.eval()
-        # import ipdb; ipdb.set_trace()
         with torch.no_grad():
             for i, data_batch in enumerate(self.val_loader):
                 images, labels = data_batch
                 images, labels = images.to(self.device), labels.to(self.device)
                 prob_pred = self.net(images)
-                # print(self.val_loader.dataset.label_path[i],file=self.val_output)
-                # for side_num in range(len(prob_pred)):
-                    # for num in range(prob_pred[side_num].shape[0]):
-                #         tmp = prob_pred[side_num][num]
-                #         tmp = tmp.cpu().data
-                #         img = ToPILImage()(tmp)
-                #         img.save(self.config.val_fold_sub + '/' + str(i) +'_' + str(num)+'_side_' + str(side_num) + '.png')
                 # for side_num in range(len(prob_pred)):
                 #         tmp = torch.sigmoid(prob_pred[side_num])[0]
                 #         tmp = tmp.cpu().data
                 #         img = ToPILImage()(tmp)
                 #         img.save(self.config.val_fold_sub + '/' + self.val_loader.dataset.label_path[i][36:-4] +'_side_' + str(side_num) + '.png')
-                iloss = self.loss(prob_pred, labels).item()
-                avg_loss += iloss
+                avg_loss += self.loss(prob_pred[0], labels).item()
                 # prob_pred = torch.mean(torch.cat([torch.sigmoid(prob_pred[i]) for i in self.select], dim=1), dim=1, keepdim=True)
-                avg_mae += self.eval_mae(torch.sigmoid(prob_pred), labels).item()
-                print(f'{i} --  {iloss}',file=self.val_output)
+                avg_mae += self.eval_mae(torch.sigmoid(prob_pred[0]), labels).item()
+                # print(f'{i} --  {iloss}',file=self.val_output)
         self.net.train()
         return avg_mae / len(self.val_loader), avg_loss / len(self.val_loader)
 
@@ -149,7 +140,7 @@ class Solver(object):
                 images = images.to(self.device)
                 prob_pred = self.net(images)
                 # prob_pred = torch.mean(torch.cat([torch.sigmoid(prob_pred[i]) for i in self.select], dim=1), dim=1, keepdim=True)
-                prob_pred = F.interpolate(torch.sigmoid(prob_pred), size=shape, mode='bilinear', align_corners=True).cpu().data
+                prob_pred = F.interpolate(torch.sigmoid(prob_pred[0]), size=shape, mode='bilinear', align_corners=True).cpu().data
                 mae = self.eval_mae(prob_pred, labels)
                 prec, recall = self.eval_pr(prob_pred, labels, num)
                 tmp = prob_pred[0]
@@ -176,29 +167,29 @@ class Solver(object):
 
         # DISCRIMINATOR NETWORK
         # seg maps, i.e. output, level
-        d_main = get_fc_discriminator(num_classes=num_classes)
-        d_main.train()
-        d_main.to(self.device)
+        # d_main = get_fc_discriminator(num_classes=num_classes)
+        # d_main.train()
+        # d_main.to(self.device)
 
-        # OPTIMIZERS
-        # discriminators' optimizers
-        optimizer_d_main = optim.Adam(d_main.parameters(), lr=self.config.lr_d,
-                                    betas=(0.9, 0.99))                               
+        # # OPTIMIZERS
+        # # discriminators' optimizers
+        # optimizer_d_main = optim.Adam(d_main.parameters(), lr=self.config.lr_d,
+        #                             betas=(0.9, 0.99))                               
         # labels for adversarial training-------------------------------------------------------
-        source_label = 0
-        target_label = 1
+        # source_label = 0
+        # target_label = 1
         trainloader_iter = enumerate(self.train_loader)
         targetloader_iter = enumerate(self.targetloader)
         best_mae = 1.0 if self.config.val else None 
 
         for i_iter in tqdm(range(self.config.early_stop)):
             
-            if i_iter >= 3000:
-                self.update_lr(1e-5)
+            # if i_iter >= 3000:
+            #     self.update_lr(1e-5)
 
             # reset optimizers
             self.optimizer.zero_grad()
-            optimizer_d_main.zero_grad()
+            # optimizer_d_main.zero_grad()
 
             # # adapt LR if needed
             # adjust_learning_rate(self.optimizer, i_iter, cfg)
@@ -206,116 +197,126 @@ class Solver(object):
             # adjust_learning_rate_discriminator(optimizer_d_main, i_iter, cfg)
 
             # UDA Training--------------------------------------------------------------------------
-            # only train segnet. Don't accumulate grads in disciminators
-            for param in d_main.parameters():
-                param.requires_grad = False
-            # train on source
+            # # only train segnet. Don't accumulate grads in disciminators
+            # for param in d_main.parameters():
+            #     param.requires_grad = False
+            
+            # train on source with seg loss
             _, batch = trainloader_iter.__next__()
-            x, y = batch
-            x, y = x.to(self.device), y.to(self.device)
-            # y_pred = self.net(x)
-            pred_src_main = self.net(x)
-            loss_seg_src = self.loss(pred_src_main, y)
+            imgs_src, labels_src = batch
+            imgs_src, labels_src = imgs_src.to(self.device), labels_src.to(self.device)
+            pred_src = self.net(imgs_src)
+            loss_seg_src = self.loss(pred_src[0], labels_src) #side output 1
             loss = loss_seg_src
             loss.backward()
             utils.clip_grad_norm_(self.net.parameters(), self.config.clip_gradient)
-            # utils.clip_grad_norm(self.loss.parameters(), self.config.clip_gradient)
-            
-            if self.config.add_adv:
-                # adversarial training ot fool the discriminator-------------------------------------------
-                _, batch = targetloader_iter.__next__()
-                images = batch
-                images = images.to(self.device)
-                pred_trg_main = self.net(images)
+
+            # train on target with seg loss 
+            _, batch1 = targetloader_iter.__next__()
+            imgs_trg, labels_trg = batch1
+            imgs_trg, labels_trg = imgs_trg.to(self.device), labels_trg.to(self.device)
+            pred_trg = self.net(imgs_trg)
+            loss_seg_trg = self.loss(pred_trg[5], labels_trg) # side output 6
+            loss = loss_seg_trg
+            loss.backward()
+            utils.clip_grad_norm_(self.net.parameters(), self.config.clip_gradient)          
+
+
+            # if self.config.add_adv:
+            #     # adversarial training ot fool the discriminator-------------------------------------------
+            #     _, batch = targetloader_iter.__next__()
+            #     images = batch
+            #     images = images.to(self.device)
+            #     pred_trg_main = self.net(images)
     
-                d_out_main = d_main(torch.sigmoid(pred_trg_main))
-                loss_adv_trg_main = bce_loss(d_out_main, source_label)
-                loss_adv_trg = self.config.LAMBDA_ADV_MAIN * loss_adv_trg_main
-                loss = loss_adv_trg
-                loss.backward()
+            #     d_out_main = d_main(torch.sigmoid(pred_trg_main))
+            #     loss_adv_trg_main = bce_loss(d_out_main, source_label)
+            #     loss_adv_trg = self.config.LAMBDA_ADV_MAIN * loss_adv_trg_main
+            #     loss = loss_adv_trg
+            #     loss.backward()
 
-                # # d_out_main = d_main(prob_2_entropy(pred_trg_main[0]))
-                # d_out_main = d_main(torch.sigmoid(pred_trg_main[0]))
-                # loss_adv_trg_main = bce_loss(d_out_main, source_label)
-                # loss_adv_trg = self.config.LAMBDA_ADV_MAIN * loss_adv_trg_main
-                # for i in range(len(pred_trg_main) - 1):
-                #     # d_out_main = d_main(prob_2_entropy(pred_trg_main[i+1]))
-                #     d_out_main = d_main(torch.sigmoid(pred_trg_main[i+1]))
-                #     loss_adv_trg_main = bce_loss(d_out_main, source_label)
-                #     loss_adv_trg += self.config.LAMBDA_ADV_MAIN * loss_adv_trg_main
-                # loss = loss_adv_trg
-                # loss.backward()
+            #     # # d_out_main = d_main(prob_2_entropy(pred_trg_main[0]))
+            #     # d_out_main = d_main(torch.sigmoid(pred_trg_main[0]))
+            #     # loss_adv_trg_main = bce_loss(d_out_main, source_label)
+            #     # loss_adv_trg = self.config.LAMBDA_ADV_MAIN * loss_adv_trg_main
+            #     # for i in range(len(pred_trg_main) - 1):
+            #     #     # d_out_main = d_main(prob_2_entropy(pred_trg_main[i+1]))
+            #     #     d_out_main = d_main(torch.sigmoid(pred_trg_main[i+1]))
+            #     #     loss_adv_trg_main = bce_loss(d_out_main, source_label)
+            #     #     loss_adv_trg += self.config.LAMBDA_ADV_MAIN * loss_adv_trg_main
+            #     # loss = loss_adv_trg
+            #     # loss.backward()
 
-                # Train discriminator networks--------------------------------------------------------------
-                # enable training mode on discriminator networks
-                for param in d_main.parameters():
-                    param.requires_grad = True
+            #     # Train discriminator networks--------------------------------------------------------------
+            #     # enable training mode on discriminator networks
+            #     for param in d_main.parameters():
+            #         param.requires_grad = True
                 
-                # train with source
-                pred_src_main = pred_src_main.detach()
-                d_out_main = d_main(torch.sigmoid(pred_src_main))
-                loss_d_main = bce_loss(d_out_main, source_label)
-                loss_d_src = loss_d_main / 2
-                loss_d = loss_d_src
-                loss_d.backward()
+            #     # train with source
+            #     pred_src_main = pred_src_main.detach()
+            #     d_out_main = d_main(torch.sigmoid(pred_src_main))
+            #     loss_d_main = bce_loss(d_out_main, source_label)
+            #     loss_d_src = loss_d_main / 2
+            #     loss_d = loss_d_src
+            #     loss_d.backward()
 
-                # train with target
-                pred_trg_main = pred_trg_main.detach()
-                d_out_main = d_main(torch.sigmoid(pred_trg_main))
-                loss_d_main = bce_loss(d_out_main, target_label)
-                loss_d_trg = loss_d_main / 2
-                loss_d = loss_d_trg
-                loss_d.backward()
+            #     # train with target
+            #     pred_trg_main = pred_trg_main.detach()
+            #     d_out_main = d_main(torch.sigmoid(pred_trg_main))
+            #     loss_d_main = bce_loss(d_out_main, target_label)
+            #     loss_d_trg = loss_d_main / 2
+            #     loss_d = loss_d_trg
+            #     loss_d.backward()
 
-                # # train with source
-                # pred_src_main[0] = pred_src_main[0].detach()
-                # # d_out_main = d_main(prob_2_entropy(pred_src_main[0]))
-                # d_out_main = d_main(torch.sigmoid(pred_src_main[0]))
-                # loss_d_main = bce_loss(d_out_main, source_label)
-                # loss_d_src = loss_d_main / 2
-                # for i in range(len(pred_src_main) - 1):
-                #     pred_src_main[i+1] = pred_src_main[i+1].detach()
-                #     # d_out_main = d_main(prob_2_entropy(pred_src_main[i+1]))
-                #     d_out_main = d_main(torch.sigmoid(pred_src_main[i+1]))
-                #     loss_d_main = bce_loss(d_out_main, source_label)
-                #     loss_d_src += loss_d_main / 2
-                # loss_d = loss_d_src
-                # loss_d.backward()
+            #     # # train with source
+            #     # pred_src_main[0] = pred_src_main[0].detach()
+            #     # # d_out_main = d_main(prob_2_entropy(pred_src_main[0]))
+            #     # d_out_main = d_main(torch.sigmoid(pred_src_main[0]))
+            #     # loss_d_main = bce_loss(d_out_main, source_label)
+            #     # loss_d_src = loss_d_main / 2
+            #     # for i in range(len(pred_src_main) - 1):
+            #     #     pred_src_main[i+1] = pred_src_main[i+1].detach()
+            #     #     # d_out_main = d_main(prob_2_entropy(pred_src_main[i+1]))
+            #     #     d_out_main = d_main(torch.sigmoid(pred_src_main[i+1]))
+            #     #     loss_d_main = bce_loss(d_out_main, source_label)
+            #     #     loss_d_src += loss_d_main / 2
+            #     # loss_d = loss_d_src
+            #     # loss_d.backward()
 
-                # # train with target
-                # pred_trg_main[0] = pred_trg_main[0].detach()
-                # # d_out_main = d_main(prob_2_entropy(pred_trg_main[0]))
-                # d_out_main = d_main(torch.sigmoid(pred_trg_main[0]))
-                # loss_d_main = bce_loss(d_out_main, target_label)
-                # loss_d_trg = loss_d_main / 2
-                # for i in range(len(pred_trg_main) - 1):
-                #     pred_trg_main[i+1] = pred_trg_main[i+1].detach()
-                #     # d_out_main = d_main(prob_2_entropy(pred_trg_main[i+1]))
-                #     d_out_main = d_main(torch.sigmoid(pred_trg_main[i+1]))
-                #     loss_d_main = bce_loss(d_out_main, target_label)
-                #     loss_d_trg += loss_d_main / 2
-                # loss_d = loss_d_trg
-                # loss_d.backward()
+            #     # # train with target
+            #     # pred_trg_main[0] = pred_trg_main[0].detach()
+            #     # # d_out_main = d_main(prob_2_entropy(pred_trg_main[0]))
+            #     # d_out_main = d_main(torch.sigmoid(pred_trg_main[0]))
+            #     # loss_d_main = bce_loss(d_out_main, target_label)
+            #     # loss_d_trg = loss_d_main / 2
+            #     # for i in range(len(pred_trg_main) - 1):
+            #     #     pred_trg_main[i+1] = pred_trg_main[i+1].detach()
+            #     #     # d_out_main = d_main(prob_2_entropy(pred_trg_main[i+1]))
+            #     #     d_out_main = d_main(torch.sigmoid(pred_trg_main[i+1]))
+            #     #     loss_d_main = bce_loss(d_out_main, target_label)
+            #     #     loss_d_trg += loss_d_main / 2
+            #     # loss_d = loss_d_trg
+            #     # loss_d.backward()
 
 
             # optimizer.step()------------------------------------------------------------------------------
             self.optimizer.step()
-            optimizer_d_main.step()
+            # optimizer_d_main.step()
                 
             current_losses = {
-                            'loss_seg_src': loss_seg_src}
+                            'loss_seg_src': loss_seg_src,
+                            'loss_srg_trg': loss_seg_trg}
                             # 'loss_adv_trg': loss_adv_trg,
                             # 'loss_d_src': loss_d_src,
                             # 'loss_d_trg': loss_d_trg}
             print_losses(current_losses, i_iter, self.log_output)
 
             if self.config.val and (i_iter + 1) % self.config.iter_val == 0:
-                # tqdm.write('validation ...')
                 # val = i_iter + 1
                 # os.mkdir("%s/val-%d" % (self.config.val_fold, val))
                 # self.config.val_fold_sub = "%s/val-%d" % (self.config.val_fold, val)
-                mae,loss_val = self.validation()
-                log_vals_tensorboard(writer,best_mae,mae,loss_val, i_iter+1)
+                mae, loss_val = self.validation()
+                log_vals_tensorboard(writer, best_mae,mae,loss_val, i_iter+1)
                 tqdm.write('%d:--- Best MAE: %.4f, Curr MAE: %.4f ---' % ((i_iter + 1),best_mae, mae))
                 print('  %d:--- Best MAE: %.4f, Curr MAE: %.4f ---' % ((i_iter + 1),best_mae, mae), file=self.log_output)
                 print('  %d:--- Best MAE: %.4f, Curr MAE: %.4f ---' % ((i_iter + 1),best_mae, mae), file=self.val_output)

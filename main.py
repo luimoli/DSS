@@ -9,12 +9,14 @@ def main(config):
     if config.mode == 'train':
         train_loader = get_loader(config.train_path, config.label_path, config.img_size, config.batch_size,
                                   filename=config.train_file,itertype='multi', num_thread=config.num_thread)
-        target_loader = get_loader_target(config.target_path, config.img_size, config.batch_size, 
-                                    filename=config.target_file,num_thread=config.num_thread)
+        # target_loader = get_loader_target(config.target_image_path, config.img_size, config.batch_size, 
+        #                             filename=config.target_file,num_thread=config.num_thread)
+        target_loader = get_loader(config.target_image_path,config.target_label_path, config.img_size, config.batch_size, 
+                                    filename=config.target_file,itertype='multi', num_thread=config.num_thread)
 
         if config.val:
             val_loader = get_loader(config.val_path, config.val_label, config.img_size, config.val_batch_size,
-                                    filename=config.val_file,num_thread=config.num_thread)
+                                    filename=config.val_file, valsize='original', num_thread=config.num_thread)
             if not os.path.exists(config.val_fold): os.mkdir(config.val_fold)
         run = 0
         while os.path.exists("%s/run-%d" % (config.save_fold, run)): run += 1
@@ -48,6 +50,7 @@ if __name__ == '__main__':
     # data_root = os.path.join(os.path.expanduser('~'), 'data')
     data_root = '/data0/liumengmeng/datasets'
     cg2_root = '/data1/liumengmeng/CG2'
+    salicon_root = '/data1/liumengmeng/SALICON'
     vgg_path = './weights/vgg16_feat.pth'
     
     # # -----MSRA-B dataset-----
@@ -75,16 +78,28 @@ if __name__ == '__main__':
     # target_path = os.path.join(data_root, 'DUTS/imgs')
     # target_file = os.path.join(data_root, 'DUTS/ImageSets/train_id.txt')
 
-    # ------CG TWO  dataset-----
+    # # ------source:CG2  target:DUTS  test/val:DUTS-TEST-----
+    # image_path = os.path.join(cg2_root, 'img')
+    # label_path = os.path.join(cg2_root, 'gt')
+    # train_file = os.path.join(cg2_root, 'id/train_id.txt')
+    # valid_file = os.path.join(data_root, 'DUTS/ImageSets/test_id.txt')
+    # image_path_2 = os.path.join(data_root, 'DUTS/imgs')
+    # label_path_2 = os.path.join(data_root, 'DUTS/gt')
+    # test_file = os.path.join(data_root, 'DUTS/ImageSets/test_id.txt')
+    # target_path = os.path.join(data_root, 'DUTS/imgs')
+    # target_file = os.path.join(data_root, 'DUTS/ImageSets/train_id.txt')
+
+    # ------source:CG2  target:SALICON  test/val:DUTS-TEST -----
     image_path = os.path.join(cg2_root, 'img')
     label_path = os.path.join(cg2_root, 'gt')
     train_file = os.path.join(cg2_root, 'id/train_id.txt')
     valid_file = os.path.join(data_root, 'DUTS/ImageSets/test_id.txt')
-    image_path_2 = os.path.join(data_root, 'DUTS/imgs')
-    label_path_2 = os.path.join(data_root, 'DUTS/gt')
+    val_image_path = os.path.join(data_root, 'DUTS/imgs')
+    val_label_path = os.path.join(data_root, 'DUTS/gt')
     test_file = os.path.join(data_root, 'DUTS/ImageSets/test_id.txt')
-    target_path = os.path.join(data_root, 'DUTS/imgs')
-    target_file = os.path.join(data_root, 'DUTS/ImageSets/train_id.txt')
+    target_image_path = os.path.join(salicon_root, 'img_tr')
+    target_label_path = os.path.join(salicon_root, 'gt_tr')
+    target_file = os.path.join(salicon_root, 'id/train_id.txt')
 
 
     parser = argparse.ArgumentParser()
@@ -92,7 +107,7 @@ if __name__ == '__main__':
     # Hyper-parameters
     parser.add_argument('--n_color', type=int, default=3)
     parser.add_argument('--img_size', type=int, default=320)  # 256
-    parser.add_argument('--lr', type=float, default=1e-4)#-4 #1e-6
+    parser.add_argument('--lr', type=float, default=1e-5)#-4 #1e-6
     parser.add_argument('--lr_d', type=float, default=1e-4)#-4 #1e-6
     parser.add_argument('--LAMBDA_ADV_MAIN', type=float, default=0.01) # loss_adv
     parser.add_argument('--clip_gradient', type=float, default=1.0)
@@ -103,17 +118,18 @@ if __name__ == '__main__':
     parser.add_argument('--train_path', type=str, default=image_path)
     parser.add_argument('--label_path', type=str, default=label_path)
     parser.add_argument('--train_file', type=str, default=train_file)
-    parser.add_argument('--target_path', type=str, default=target_path)# target domain
+    parser.add_argument('--target_image_path', type=str, default=target_image_path)# target domain
+    parser.add_argument('--target_label_path', type=str, default=target_label_path)# target domain
     parser.add_argument('--target_file', type=str, default=target_file)# the id of target domain
     parser.add_argument('--early_stop', type=int, default=20000)# iteration number
     parser.add_argument('--iter_save', type=int, default=500)# save model every  epoch
-    parser.add_argument('--iter_val', type=int, default=500) # equals  epoch
+    parser.add_argument('--iter_val', type=int, default=5) # equals  epoch
     parser.add_argument('--epoch', type=int, default=50)
     parser.add_argument('--batch_size', type=int, default=1)  # 8 # 16
     parser.add_argument('--val_batch_size', type=int, default=1)  # 8 # 16
     parser.add_argument('--val', type=bool, default=True)
-    parser.add_argument('--val_path', type=str, default=image_path_2)
-    parser.add_argument('--val_label', type=str, default=label_path_2)
+    parser.add_argument('--val_path', type=str, default=val_image_path)
+    parser.add_argument('--val_label', type=str, default=val_label_path)
     parser.add_argument('--val_file', type=str, default=valid_file)
     parser.add_argument('--num_thread', type=int, default=4)
     parser.add_argument('--load', type=str, default='')
@@ -127,8 +143,8 @@ if __name__ == '__main__':
     parser.add_argument('--add_adv', type=bool, default=False)
 
     # Testing settings
-    parser.add_argument('--test_path', type=str, default=image_path_2)
-    parser.add_argument('--test_label', type=str, default=label_path_2)
+    parser.add_argument('--test_path', type=str, default=val_image_path)
+    parser.add_argument('--test_label', type=str, default=val_label_path)
     parser.add_argument('--test_file', type=str, default=test_file)
     parser.add_argument('--model', type=str, default='./weights/final.pth')
     parser.add_argument('--test_fold', type=str, default='/data1/liumengmeng/DSS/DSS-results/test')

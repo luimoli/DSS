@@ -72,7 +72,7 @@ class TargetData(data.Dataset):
         return len(self.image_path)
 
 # get the dataloader (Note: without data augmentation)
-def get_loader(img_root, label_root, img_size, batch_size, filename=None, mode='train',itertype='default', num_thread=2, pin=True):
+def get_loader(img_root, label_root, img_size, batch_size, filename=None, mode='train',itertype='default',valsize='default', num_thread=2, pin=True):
     if mode == 'train':     
         transform = transforms.Compose([
             transforms.Resize((img_size, img_size)),

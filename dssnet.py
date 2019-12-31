@@ -119,15 +119,16 @@ class DSS(nn.Module):
         if self.v2:
             # version2: learning fusion
             # back.append(self.fuse(back))
-            predic = self.fuse(back)
+            # predic = self.fuse(back)
+            pass
         else:
             # version1: mean fusion
             back.append(torch.cat(back, dim=1).mean(dim=1, keepdim=True))
         # add sigmoid
         # for i in back: prob.append(torch.sigmoid(i))
-        # for i in back: prob.append(i)
-        # return prob
-        return predic
+        for i in back: prob.append(i)
+        return prob
+        # return predic
 
 
 # build the whole network
