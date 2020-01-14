@@ -118,9 +118,8 @@ class DSS(nn.Module):
         # fusion map
         if self.v2:
             # version2: learning fusion
-            # back.append(self.fuse(back))
+            back.append(self.fuse(back))
             # predic = self.fuse(back)
-            pass
         else:
             # version1: mean fusion
             back.append(torch.cat(back, dim=1).mean(dim=1, keepdim=True))

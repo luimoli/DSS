@@ -28,14 +28,14 @@ from advent.utils.loss import entropy_loss
 from advent.utils.func import prob_2_entropy
 from advent.utils.viz_segmask import colorize_mask
 
-
+# filebad_id = open('/data1/liumengmeng/bad_bg_id.txt','a')
 
 class Solver(object):
     def __init__(self, train_loader, target_loader,val_loader, test_dataset, config):
         self.train_loader = train_loader
         self.val_loader = val_loader
         self.test_dataset = test_dataset
-        self.targetloader = target_loader
+        self.target_loader = target_loader
         self.config = config
         self.beta = math.sqrt(0.3)  # for max F_beta metric
         # inference: choose the side map (see paper)
@@ -59,6 +59,7 @@ class Solver(object):
             self.net.load_state_dict(torch.load(self.config.model))
             self.net.eval()
             self.test_output = open("%s/test.txt" % config.test_fold, 'w')
+            # self.test_bg_id = open("%s/bg_id.txt" % config.test_fold, 'w')
             self.test_outmap = config.test_map_fold
             self.transform = transforms.Compose([
                 transforms.Resize((256, 256)),
@@ -114,6 +115,7 @@ class Solver(object):
         with torch.no_grad():
             for i, data_batch in enumerate(self.val_loader):
                 images, labels = data_batch
+                shape = labels.size()[2:]    
                 images, labels = images.to(self.device), labels.to(self.device)
                 prob_pred = self.net(images)
                 # for side_num in range(len(prob_pred)):
@@ -121,15 +123,23 @@ class Solver(object):
                 #         tmp = tmp.cpu().data
                 #         img = ToPILImage()(tmp)
                 #         img.save(self.config.val_fold_sub + '/' + self.val_loader.dataset.label_path[i][36:-4] +'_side_' + str(side_num) + '.png')
-                avg_loss += self.loss(prob_pred[0], labels).item()
-                # prob_pred = torch.mean(torch.cat([torch.sigmoid(prob_pred[i]) for i in self.select], dim=1), dim=1, keepdim=True)
-                avg_mae += self.eval_mae(torch.sigmoid(prob_pred[0]), labels).item()
-                # print(f'{i} --  {iloss}',file=self.val_output)
+                # prob_pred1 = torch.mean(torch.cat([prob_pred[i] for i in self.select], dim=1), dim=1, keepdim=True)
+                # prob_pred1 = F.interpolate(prob_pred, size=shape, mode='bilinear', align_corners=True)
+                prob_pred2 = torch.mean(torch.cat([torch.sigmoid(prob_pred[i]) for i in self.select], dim=1), dim=1, keepdim=True)
+                prob_pred2 = F.interpolate(prob_pred2, size=shape, mode='bilinear', align_corners=True)
+                # prob_pred2 = F.interpolate(torch.sigmoid(prob_pred), size=shape, mode='bilinear', align_corners=True)
+                # tmp = prob_pred_sig.cpu().data
+                # img = ToPILImage()(tmp)
+                # img.save(self.config.val_fold_sub + '/' + self.val_loader.dataset.label_path[i][36:])
+                # avg_loss += self.loss(prob_pred1, labels).item()
+                avg_mae += self.eval_mae(prob_pred2, labels).item()
         self.net.train()
         return avg_mae / len(self.val_loader), avg_loss / len(self.val_loader)
 
     # test phase: using origin image size, evaluate MAE and max F_beta metrics
     def test(self, num, use_crf=False):
+        if use_crf: from tools.crf_process import crf
+        dic = {}
         avg_mae, img_num = 0.0, len(self.test_dataset)
         avg_prec, avg_recall = torch.zeros(num), torch.zeros(num)
         with torch.no_grad():
@@ -139,13 +149,17 @@ class Solver(object):
                 shape = labels.size()[2:]
                 images = images.to(self.device)
                 prob_pred = self.net(images)
-                # prob_pred = torch.mean(torch.cat([torch.sigmoid(prob_pred[i]) for i in self.select], dim=1), dim=1, keepdim=True)
-                prob_pred = F.interpolate(torch.sigmoid(prob_pred[0]), size=shape, mode='bilinear', align_corners=True).cpu().data
+                prob_pred = torch.mean(torch.cat([torch.sigmoid(prob_pred[i]) for i in self.select], dim=1), dim=1, keepdim=True)
+                # prob_pred = F.interpolate(torch.sigmoid(prob_pred[0]), size=shape, mode='bilinear', align_corners=True).cpu().data
+                prob_pred = F.interpolate(prob_pred, size=shape, mode='bilinear', align_corners=True).cpu().data
+                if use_crf:
+                    prob_pred = crf(img, prob_pred.numpy(), to_tensor=True)
                 mae = self.eval_mae(prob_pred, labels)
+                # dic.update({self.test_dataset.label_path[i][self.config.test_map_save_pos:-4] : mae})
                 prec, recall = self.eval_pr(prob_pred, labels, num)
                 tmp = prob_pred[0]
-                img = ToPILImage()(tmp)
-                img.save(self.test_outmap + '/' + self.test_dataset.label_path[i][36:])
+                imgpred = ToPILImage()(tmp)
+                imgpred.save(self.test_outmap + '/' + self.test_dataset.label_path[i][self.config.test_map_save_pos:])
                 print("[%d] mae: %.4f" % (i, mae))
                 print("[%d] mae: %.4f" % (i, mae), file=self.test_output)
                 avg_mae += mae
@@ -155,11 +169,39 @@ class Solver(object):
         score[score != score] = 0  # delete the nan
         print('average mae: %.4f, max fmeasure: %.4f' % (avg_mae, score.max()))
         print('average mae: %.4f, max fmeasure: %.4f' % (avg_mae, score.max()), file=self.test_output)
+        # dic_sorted = sorted(dic.items(), key = lambda kv:(kv[1], kv[0]),reverse=True)
+        # file1 = open('/data1/liumengmeng/CG4_id_mae/SOD.txt','w')
+        # for i in range(int(len(dic_sorted)*0.1)):
+        #     print(dic_sorted[i][0] ,file=file1)
+
+    def test_bg(self):
+        dic = {}
+        with torch.no_grad():
+            for i, img in enumerate(self.test_dataset):
+                print(self.test_dataset.image_path[i][self.config.test_map_save_pos:-4])
+                try:
+                    images = self.transform(img).unsqueeze(0)
+                    images = images.to(self.device)
+                    prob_pred = self.net(images)
+                    prob_pred = torch.mean(torch.cat([torch.sigmoid(prob_pred[i]) for i in self.select], dim=1), dim=1, keepdim=True)
+                    prob_pred = prob_pred.cpu().data
+                    tmp = prob_pred[0]
+                    probarray = tmp.numpy()
+                    num_1 = len(np.argwhere(probarray > 0.5))
+                    ratio = num_1 / (tmp.shape[1]*tmp.shape[2])
+                    dic.update({self.test_dataset.image_path[i][self.config.test_map_save_pos:-4] : ratio})
+                    print(ratio)
+                except TypeError as tycode:
+                    print(self.test_dataset.image_path[i][self.config.test_map_save_pos:-4],file= filebad_id)
+
+        dic_sorted = sorted(dic.items(), key = lambda kv:(kv[1], kv[0]))
+        for i in dic_sorted:
+            print(f'{i[0]} : {i[1]}',file=self.test_output)
+            print(i[0],file=self.test_bg_id)
 
 
-    def train_advent(self):
-        ''' UDA training with advent
-        '''
+
+    def train(self):
         num_classes = 1
         viz_tensorboard = os.path.exists(self.TENSORBOARD_LOGDIR)
         if viz_tensorboard:
@@ -179,7 +221,7 @@ class Solver(object):
         # source_label = 0
         # target_label = 1
         trainloader_iter = enumerate(self.train_loader)
-        targetloader_iter = enumerate(self.targetloader)
+        # targetloader_iter = enumerate(self.target_loader)
         best_mae = 1.0 if self.config.val else None 
 
         for i_iter in tqdm(range(self.config.early_stop)):
@@ -206,20 +248,21 @@ class Solver(object):
             imgs_src, labels_src = batch
             imgs_src, labels_src = imgs_src.to(self.device), labels_src.to(self.device)
             pred_src = self.net(imgs_src)
-            loss_seg_src = self.loss(pred_src[0], labels_src) #side output 1
+            # loss_seg_src = self.loss(pred_src[0], labels_src) #side output 1
+            loss_seg_src = self.loss(pred_src, labels_src) #side output 1 - 6 with fusion
             loss = loss_seg_src
             loss.backward()
             utils.clip_grad_norm_(self.net.parameters(), self.config.clip_gradient)
 
-            # train on target with seg loss 
-            _, batch1 = targetloader_iter.__next__()
-            imgs_trg, labels_trg = batch1
-            imgs_trg, labels_trg = imgs_trg.to(self.device), labels_trg.to(self.device)
-            pred_trg = self.net(imgs_trg)
-            loss_seg_trg = self.loss(pred_trg[5], labels_trg) # side output 6
-            loss = loss_seg_trg
-            loss.backward()
-            utils.clip_grad_norm_(self.net.parameters(), self.config.clip_gradient)          
+            # # train on target with seg loss 
+            # _, batch1 = targetloader_iter.__next__()
+            # imgs_trg, labels_trg = batch1
+            # imgs_trg, labels_trg = imgs_trg.to(self.device), labels_trg.to(self.device)
+            # pred_trg = self.net(imgs_trg)
+            # loss_seg_trg = self.loss(pred_trg[5], labels_trg) # side output 6
+            # loss = loss_seg_trg
+            # loss.backward()
+            # utils.clip_grad_norm_(self.net.parameters(), self.config.clip_gradient)          
 
 
             # if self.config.add_adv:
@@ -304,8 +347,8 @@ class Solver(object):
             # optimizer_d_main.step()
                 
             current_losses = {
-                            'loss_seg_src': loss_seg_src,
-                            'loss_srg_trg': loss_seg_trg}
+                            'loss_seg_src': loss_seg_src}
+                            # 'loss_seg_trg': loss_seg_trg}
                             # 'loss_adv_trg': loss_adv_trg,
                             # 'loss_d_src': loss_d_src,
                             # 'loss_d_trg': loss_d_trg}
@@ -428,4 +471,4 @@ def log_losses_tensorboard(writer, current_losses, i_iter):
 def log_vals_tensorboard(writer, best_mae, mae, loss_val, val_iter):
     writer.add_scalar(f'val/best_mae', best_mae, val_iter)
     writer.add_scalar(f'val/curr_mae', mae, val_iter)
-    writer.add_scalar(f'val/loss_seg', loss_val, val_iter)
+    writer.add_scalar(f'val/loss_seg_val', loss_val, val_iter)
