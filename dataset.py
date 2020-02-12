@@ -4,10 +4,10 @@ import torch
 from torch.utils import data
 from torchvision import transforms
 import numpy as np
-from PIL import ImageFile
-ImageFile.LOAD_TRUNCATED_IMAGES = True
+# from PIL import ImageFile
+# ImageFile.LOAD_TRUNCATED_IMAGES = True
 
-max_iters = 800000
+max_iters = 3000000
 # filebad_id = open('/data1/liumengmeng/bad_bg_id.txt','a')
 
 class ImageData(data.Dataset):
@@ -92,32 +92,32 @@ class TargetData(data.Dataset):
             self.image_path = list(map(lambda x: os.path.join(img_root, x), os.listdir(img_root)))
         else:
             lines = [line.rstrip('\n') for line in open(filename)]
-            # lines = lines * int(np.ceil(float(max_iters) / len(lines)))  #only extend ids when using _next_()
+            lines = lines * int(np.ceil(float(max_iters) / len(lines)))  #only extend ids when using _next_()
             self.image_path = list(map(lambda x: os.path.join(img_root, x + '.jpg'), lines))
 
         self.transform = transform
 
-    # def __getitem__(self, item):
-    #     image = Image.open(self.image_path[item]).convert('RGB')
-    #     if self.transform is not None:
-    #         image = self.transform(image)
-    #     return image
     def __getitem__(self, item):
-        try:
-            image = Image.open(self.image_path[item]).convert('RGB')
-            if self.transform is not None:
-                image = self.transform(image)
-            return image
-        except IOError as ercode:
-            print(self.image_path[item],file=filebad_id)
-        except TypeError as tycode:
-            print(self.image_path[item],file=filebad_id)
+        image = Image.open(self.image_path[item]).convert('RGB')
+        if self.transform is not None:
+            image = self.transform(image)
+        return image
+    # def __getitem__(self, item):
+    #     try:
+    #         image = Image.open(self.image_path[item]).convert('RGB')
+    #         if self.transform is not None:
+    #             image = self.transform(image)
+    #         return image
+    #     except IOError as ercode:
+    #         print(self.image_path[item],file=filebad_id)
+    #     except TypeError as tycode:
+    #         print(self.image_path[item],file=filebad_id)
 
     def __len__(self):
         return len(self.image_path)
 
 # get the dataloader (Note: without data augmentation)
-def get_loader(img_root, label_root, img_size, batch_size, filename=None, mode='train',itertype='default', valsize='default', num_thread=2, pin=True):
+def get_loader(img_root, label_root, img_size, batch_size, filename=None, mode='train',itertype='default', valsize='default', roundtype='default', num_thread=2, pin=True):
     if mode == 'train':     
         transform = transforms.Compose([
             transforms.Resize((img_size, img_size)),
@@ -133,9 +133,15 @@ def get_loader(img_root, label_root, img_size, batch_size, filename=None, mode='
             transforms.ToTensor(),
             transforms.Lambda(lambda x: torch.round(x))  # TODO: it maybe unnecessary
         ])
+        t_transform_noround = transforms.Compose([
+            transforms.Resize((img_size, img_size)),
+            transforms.ToTensor()
+        ])
         if valsize == 'original':
             dataset = ImageData(img_root, label_root, transform, t_transform_, filename=filename, mode=mode, itertype=itertype)
             # dataset = ImageDataHKU(img_root, label_root, transform, t_transform_, filename=filename, mode=mode, itertype=itertype)
+        elif roundtype = 'original':
+            dataset = ImageData(img_root, label_root, transform, t_transform_noround, filename=filename, mode=mode, itertype=itertype)
         else:
             dataset = ImageData(img_root, label_root, transform, t_transform, filename=filename, mode=mode, itertype=itertype)
         data_loader = data.DataLoader(dataset=dataset, batch_size=batch_size, shuffle=True, num_workers=num_thread,

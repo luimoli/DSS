@@ -19,7 +19,6 @@ class Loss(nn.Module):
     #         loss += self.weight[i + 1] * F.binary_cross_entropy(x, label)
     #     return loss
 
-
 # class Loss(nn.Module):
 #     def __init__(self, weight=[1.0] * 1):
 #         super(Loss, self).__init__()
@@ -28,3 +27,9 @@ class Loss(nn.Module):
 #     def forward(self, x_list, label):
 #         loss = self.weight[0] * nn.BCEWithLogitsLoss()(x_list, label)
 #         return loss
+
+class L2loss(nn.Module):
+
+
+class IoUloss(nn.Module):
+

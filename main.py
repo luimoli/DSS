@@ -9,10 +9,10 @@ def main(config):
     if config.mode == 'train':
         train_loader = get_loader(config.train_path, config.label_path, config.img_size, config.batch_size,
                                   filename=config.train_file,itertype='multi', num_thread=config.num_thread)
-        target_loader = get_loader_target(config.target_image_path, config.img_size, config.batch_size, 
-                                    filename=config.target_file,num_thread=config.num_thread) #target without label
-        # target_loader = get_loader(config.target_image_path,config.target_label_path, config.img_size, config.batch_size, 
-        #                             filename=config.target_file,itertype='multi', num_thread=config.num_thread) #target with label
+        # target_loader = get_loader_target(config.target_image_path, config.img_size, config.batch_size, 
+                                    # filename=config.target_file,num_thread=config.num_thread) #target without label
+        target_loader = get_loader(config.target_image_path,config.target_label_path, config.img_size, config.batch_size, 
+                                    filename=config.target_file,itertype='multi', roundtype='original', num_thread=config.num_thread) #target with label
 
         if config.val:
             val_loader = get_loader(config.val_path, config.val_label, config.img_size, config.val_batch_size,
@@ -38,7 +38,7 @@ def main(config):
     elif config.mode == 'test':
         test_loader = get_loader(config.test_path, config.test_label, config.img_size, config.batch_size, mode='test',
                                  filename=config.test_file, num_thread=config.num_thread)
-                                 
+
         if not os.path.exists(config.test_fold): os.mkdir(config.test_fold)
         te = 0
         while os.path.exists("%s/test-%d" % (config.test_fold, te)): te += 1
@@ -58,19 +58,22 @@ if __name__ == '__main__':
     # data_root = os.path.join(os.path.expanduser('~'), 'data')
     data_root = '/data1/liumengmeng/dataset'
     # cg2_root = '/data1/liumengmeng/dataset/CG2'
-    # cg3tr_root = '/data1/liumengmeng/CG3-TR'
-    # cg3te_root = '/data1/liumengmeng/CG3-TE'
     cg4_root = '/data1/liumengmeng/CG4'
+    cg4all3_root = '/data1/liumengmeng/CG4_ALL3'
+    cg4dutstr_root = '/data1/liumengmeng/CG4DUTSTR'
     salicon_root = '/data1/liumengmeng/dataset/SALICON'
     soc_root = '/data1/liumengmeng/dataset/SOC'
     vgg_path = './weights/vgg16_feat.pth'
     
-    # # -----MSRA-B dataset-----
+    # -----MSRA-B dataset-----
     # image_path = os.path.join(data_root, 'MSRA-B/img')
     # label_path = os.path.join(data_root, 'MSRA-B/gt')
-    # train_file = os.path.join(data_root, 'MSRA-B/train_id.txt')
-    # valid_file = os.path.join(data_root, 'MSRA-B/val_id.txt')
-    # test_file = os.path.join(data_root, 'MSRA-B/test_id.txt')
+    # train_file = os.path.join(data_root, 'MSRA-B//ImageSets/train_id.txt')
+    # # valid_file = os.path.join(data_root, 'MSRA-B/val_id.txt')
+    # # test_file = os.path.join(data_root, 'MSRA-B/test_id.txt')
+    # val_image_path = os.path.join(data_root, 'DUTS/imgs')
+    # val_label_path = os.path.join(data_root, 'DUTS/gt')
+    # valid_file = os.path.join(data_root, 'DUTS/ImageSets/test_id.txt') 
 
     # # -----DUTS dataset-----
     # image_path = os.path.join(data_root, 'DUTS/imgs')
@@ -88,17 +91,6 @@ if __name__ == '__main__':
     # valid_file = os.path.join(data_root, 'DUTS/ImageSets/test_id.txt')
     # val_image_path = os.path.join(data_root, 'DUTS/imgs')
     # val_label_path = os.path.join(data_root, 'DUTS/gt')
-    # test_file = os.path.join(data_root, 'DUTS/ImageSets/test_id.txt')
-    # target_path = os.path.join(data_root, 'DUTS/imgs')
-    # target_file = os.path.join(data_root, 'DUTS/ImageSets/train_id.txt')
-
-    # # ------source:CG2  target:DUTS  test/val:DUTS-TEST-----
-    # image_path = os.path.join(cg2_root, 'imgs')
-    # label_path = os.path.join(cg2_root, 'gt')
-    # train_file = os.path.join(cg2_root, 'id/train_id.txt')
-    # valid_file = os.path.join(data_root, 'DUTS/ImageSets/test_id.txt')
-    # image_path_2 = os.path.join(data_root, 'DUTS/imgs')
-    # label_path_2 = os.path.join(data_root, 'DUTS/gt')
     # test_file = os.path.join(data_root, 'DUTS/ImageSets/test_id.txt')
     # target_path = os.path.join(data_root, 'DUTS/imgs')
     # target_file = os.path.join(data_root, 'DUTS/ImageSets/train_id.txt')
@@ -123,9 +115,9 @@ if __name__ == '__main__':
     # val_image_path = os.path.join(soc_root, 'img')
     # val_label_path = os.path.join(soc_root, 'gt')
     # test_file = os.path.join(soc_root, 'id/person_none.txt')
-    target_image_path = os.path.join(salicon_root, 'img_tr')
-    target_label_path = os.path.join(salicon_root, 'gt_tr')
-    target_file = os.path.join(salicon_root, 'id/train_id.txt')
+    # target_image_path = os.path.join(salicon_root, 'img_tr')
+    # target_label_path = os.path.join(salicon_root, 'gt_tr')
+    # target_file = os.path.join(salicon_root, 'id/train_id.txt')
 
     # #-------------CG3-TR  CG3-TE----------------------------
     # image_path = os.path.join(cg3tr_root, 'img')
@@ -140,17 +132,43 @@ if __name__ == '__main__':
     # # pos = test_label_path.find('gt') + 3
 
     # #--------------CG4--------------------------------------
+    # image_path = os.path.join(cg4_root, 'img')
+    # label_path = os.path.join(cg4_root, 'gt')
+    # train_file = os.path.join(cg4_root, 'ImageSets/total_id.txt')
+    # # # val_image_path = os.path.join(data_root,'HKU-IS/imgs')
+    # # # val_label_path = os.path.join(data_root,'HKU-IS/gt')
+    # # # valid_file = os.path.join(data_root,'HKU-IS/ImageSets/total_id.txt')
+    # val_image_path = os.path.join(data_root, 'DUTS/imgs')
+    # val_label_path = os.path.join(data_root, 'DUTS/gt')
+    # valid_file = os.path.join(data_root, 'DUTS/ImageSets/test_id.txt') 
+
+    # #--------------CG4 + else--------------------------------------
+    # image_path = os.path.join(cg4dutstr_root, 'img')
+    # label_path = os.path.join(cg4dutstr_root, 'gt')
+    # train_file = os.path.join(cg4dutstr_root, 'ImageSets/total_id.txt')
+    # # val_image_path = os.path.join(data_root,'HKU-IS/imgs')
+    # # val_label_path = os.path.join(data_root,'HKU-IS/gt')
+    # # valid_file = os.path.join(data_root,'HKU-IS/ImageSets/total_id.txt')
+    # val_image_path = os.path.join(data_root, 'DUTS/imgs')
+    # val_label_path = os.path.join(data_root, 'DUTS/gt')
+    # valid_file = os.path.join(data_root, 'DUTS/ImageSets/test_id.txt')
+
+    # #--------------CG4 + DUTS-TR PIPELINE--------------------------------------
     image_path = os.path.join(cg4_root, 'img')
     label_path = os.path.join(cg4_root, 'gt')
     train_file = os.path.join(cg4_root, 'ImageSets/total_id.txt')
-    # val_image_path = os.path.join(data_root,'HKU-IS/imgs')
-    # val_label_path = os.path.join(data_root,'HKU-IS/gt')
-    # valid_file = os.path.join(data_root,'HKU-IS/ImageSets/total_id.txt')
+
     val_image_path = os.path.join(data_root, 'DUTS/imgs')
     val_label_path = os.path.join(data_root, 'DUTS/gt')
-    valid_file = os.path.join(data_root, 'DUTS/ImageSets/test_id.txt') 
+    valid_file = os.path.join(data_root, 'DUTS/ImageSets/test_id.txt')
 
-    #--------------------------------------------------------
+    target_image_path = os.path.join(data_root, 'DUTS2/imgs')
+    target_label_path = os.path.join(data_root, 'DUTS2/gt')
+    target_file = os.path.join(data_root, 'DUTS2/ImageSets/train_id.txt')
+
+
+
+    #======================TEST_ROOTS=======================================================================
     # # #DUT-OMRON
     # test_image_path = os.path.join(data_root,'DUT-OMRON/imgs')
     # test_label_path = os.path.join(data_root,'DUT-OMRON/gt')
@@ -161,7 +179,7 @@ if __name__ == '__main__':
     test_image_path = os.path.join(data_root, 'DUTS/imgs')
     test_label_path = os.path.join(data_root, 'DUTS/gt')
     test_file = os.path.join(data_root, 'DUTS/ImageSets/test_id.txt')
-    # test_file = os.path.join(data_root, 'DUTS/ImageSets/total_id.txt')
+    # test_file = os.path.join(data_root, 'DUTS/ImageSets/train_id.txt')
     pos = test_label_path.find('gt') + 3
 
     # # #ECSSD
@@ -194,9 +212,9 @@ if __name__ == '__main__':
     # Hyper-parameters
     parser.add_argument('--n_color', type=int, default=3)
     parser.add_argument('--img_size', type=int, default=256)  # 256
-    parser.add_argument('--lr', type=float, default=1e-4)#-4 #1e-6
-    # parser.add_argument('--lr_d', type=float, default=1e-4)#-4 #1e-6
-    # parser.add_argument('--LAMBDA_ADV_MAIN', type=float, default=0.01) # loss_adv
+    parser.add_argument('--lr', type=float, default=1e-5)#-4 #1e-6
+    parser.add_argument('--lr_d', type=float, default=1e-4)#-4 #1e-6
+    parser.add_argument('--LAMBDA_ADV_MAIN', type=float, default=0.01) # loss_adv
     parser.add_argument('--clip_gradient', type=float, default=1.0)
     parser.add_argument('--cuda', type=bool, default=True)
 
@@ -208,9 +226,9 @@ if __name__ == '__main__':
     parser.add_argument('--target_image_path', type=str, default=target_image_path)# target domain
     parser.add_argument('--target_label_path', type=str, default=target_label_path)# target domain
     parser.add_argument('--target_file', type=str, default=target_file)# the id of target domain
-    parser.add_argument('--early_stop', type=int, default=70000)# iteration number
-    parser.add_argument('--iter_save', type=int, default=1400)# save model every  epoch
-    parser.add_argument('--iter_val', type=int, default=1400) # equals  epoch
+    parser.add_argument('--early_stop', type=int, default=136000)# iter
+    parser.add_argument('--iter_save', type=int, default=1360)# save model every x iter
+    parser.add_argument('--iter_val', type=int, default=1360) # val every x iter
     parser.add_argument('--epoch', type=int, default=50)
     parser.add_argument('--batch_size', type=int, default=1)  # 8 # 16
     parser.add_argument('--val_batch_size', type=int, default=1)
