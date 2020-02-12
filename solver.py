@@ -7,7 +7,7 @@ from torch.backends import cudnn
 from torchvision import transforms
 from torchvision.transforms import ToPILImage
 from dssnet import build_model, weights_init
-from loss import Loss, L2loss, IoUloss
+from loss import Loss, IoULoss
 from tools.visual import Viz_visdom
 from PIL import Image
 import numpy as np
@@ -91,8 +91,8 @@ class Solver(object):
     def build_model(self):
         if self.config.mode == 'train': 
             self.loss = Loss().to(self.device)
-            self.l2loss = L2loss().to(self.device)
-            self.iouloss = IoUloss().to(self.device)
+            self.l2loss = nn.MSELoss().to(self.device)
+            self.iouloss = IoULoss().to(self.device)
         self.net = build_model().to(self.device)
         self.net.train()
         self.net.apply(weights_init)
@@ -100,7 +100,7 @@ class Solver(object):
         if self.config.load != '': self.net.load_state_dict(torch.load(self.config.load))
         self.optimizer = Adam(self.net.parameters(), self.config.lr)
         
-        self.net2 = build_model2().to(self.device)
+        self.net2 = build_model().to(self.device)
         self.net2.train()
         self.net2.apply(weights_init)
         if self.config.load == '': self.net2.base.load_state_dict(torch.load(self.config.vgg))
@@ -291,9 +291,7 @@ class Solver(object):
             stmap, _ = self.net2(imgs_src)
             loss_seg_src = self.loss(pred_src, labels_src) #sigmoid BCE loss
             loss_fc_src = self.l2loss(smap, stmap) #L2 loss -> self attention maps
-            loss = loss_seg_src
-            loss.backward()
-            loss = loss_fc_src
+            loss = loss_seg_src + loss_fc_src
             loss.backward()
             # utils.clip_grad_norm_(self.net.parameters(), self.config.clip_gradient)
 
@@ -303,11 +301,9 @@ class Solver(object):
             imgs_trg, labels_trg = imgs_trg.to(self.device), labels_trg.to(self.device)
             tmap, pred_trg = self.net2(imgs_trg)
             tsmap, _ = self.net(imgs_trg)
-            loss_ctr_trg = self.iouloss(pred_trg, labels_trg) # IoU loss
+            loss_ctr_trg = self.iouloss(pred_trg[-1], labels_trg) # IoU loss: dns6
             loss_fc_trg = self.l2loss(tmap, tsmap) #L2 loss -> self attention maps
-            loss = loss_ctr_trg
-            loss.backward()
-            loss = loss_fc_trg
+            loss = loss_ctr_trg + loss_fc_trg
             loss.backward()
 
             utils.clip_grad_norm_(self.net.parameters(), self.config.clip_gradient)

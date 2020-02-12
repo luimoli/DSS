@@ -9,7 +9,6 @@ extra = {'dss': [(64, 128, 3, [8, 16, 32, 64]), (128, 128, 3, [4, 8, 16, 32]), (
                  (512, 256, 5, [4, 8]), (512, 512, 5, []), (512, 512, 7, [])]}
 connect = {'dss': [[2, 3, 4, 5], [2, 3, 4, 5], [4, 5], [4, 5], [], []]}
 
-
 # vgg16
 def vgg(cfg, i=3, batch_norm=False):
     layers = []
@@ -89,9 +88,39 @@ def extra_layer(vgg, cfg):
         scale *= 2
     return vgg, feat_layers, concat_layers
 
+class SelfAttLayer(nn.Module):
+    """ Self attention Layer"""
+    def __init__(self, in_dim):
+        super(SelfAttLayer,self).__init__()
+        self.chanel_in = in_dim
+        
+        self.query_conv = nn.Conv2d(in_channels = in_dim , out_channels = in_dim//8 , kernel_size= 1)
+        self.key_conv = nn.Conv2d(in_channels = in_dim , out_channels = in_dim//8 , kernel_size= 1)
+        self.value_conv = nn.Conv2d(in_channels = in_dim , out_channels = in_dim , kernel_size= 1)
+        self.gamma = nn.Parameter(torch.zeros(1))
 
-# DSS network
-# Note: if you use other backbone network, please change extract
+        self.softmax  = nn.Softmax(dim=-1) #
+    def forward(self,x):
+        """
+            inputs :
+                x : input feature maps( B X C X W X H)
+            returns :
+                out : self attention value + input feature 
+                attention: B X N X N (N is Width*Height)
+        """
+        m_batchsize,C,width ,height = x.size()
+        proj_query  = self.query_conv(x).view(m_batchsize,-1,width*height).permute(0,2,1) # B X CX(N)
+        proj_key =  self.key_conv(x).view(m_batchsize,-1,width*height) # B X C x (*W*H)
+        energy =  torch.bmm(proj_query,proj_key) # transpose check
+        attention = self.softmax(energy) # BX (N) X (N) 
+        proj_value = self.value_conv(x).view(m_batchsize,-1,width*height) # B X C X N
+
+        out = torch.bmm(proj_value,attention.permute(0,2,1) )
+        out = out.view(m_batchsize,C,width,height)
+        
+        out = self.gamma*out + x
+        return attention, out
+
 class DSS(nn.Module):
     def __init__(self, base, feat_layers, concat_layers, connect, extract=[3, 8, 15, 22, 29], v2=True):
         super(DSS, self).__init__()
@@ -104,10 +133,14 @@ class DSS(nn.Module):
         self.v2 = v2
         if v2: self.fuse = FusionLayer()
 
+        self.att = SelfAttLayer(512)
+
     def forward(self, x, label=None):
         prob, back, y, num = list(), list(), list(), 0
         for k in range(len(self.base)):
             x = self.base[k](x)
+            if k == len(self.base) - 1:
+                attmap, x = self.att(x)
             if k in self.extract:
                 y.append(self.feat[num](x))
                 num += 1
@@ -126,9 +159,8 @@ class DSS(nn.Module):
         # add sigmoid
         # for i in back: prob.append(torch.sigmoid(i))
         for i in back: prob.append(i)
-        return prob
+        return attmap, prob
         # return predic
-
 
 # build the whole network
 def build_model():
